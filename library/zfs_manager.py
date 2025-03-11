@@ -138,6 +138,29 @@ def check_volume_exists(name: str) -> bool:
     except subprocess.CalledProcessError:
         return False
 
+def validate_raid_disks(raid_type: str, disks: List[str], module: AnsibleModule) -> None:
+    raid_min_disks = {
+        'stripe': 1,
+        'mirror': 2,
+        'raidz': 3,
+        'raidz1': 3,
+        'raidz2': 4,
+        'raidz3': 5,
+    }
+
+    if raid_type == 'raidz1':
+        raid_type = 'raidz'
+
+    min_disks = raid_min_disks.get(raid_type)
+    if min_disks is None:
+        module.fail_json(msg=f"Invalid RAID type '{raid_type}'. Valid types are: {', '.join(raid_min_disks.keys())}")
+
+    if len(disks) < min_disks:
+        module.fail_json(
+            msg=f"RAID type '{raid_type}' requires at least {min_disks} disks. "
+                f"Provided disks: {len(disks)} ({disks})"
+        )
+
 def run_module():
     module_args = dict(
         name=dict(type='str', required=True),
@@ -166,6 +189,7 @@ def run_module():
 
     # Handle zpool creation/deletion
     if obj_type == 'zpool':
+        validate_raid_disks(module.params['raidz'], module.params['disks'], module)
         pool_exists = check_zpool_exists(name)
 
         if state == 'present':
