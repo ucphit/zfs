@@ -1,8 +1,8 @@
 ---
 - name: List disks
-  command: lsblk -o NAME,FSTYPE,TYPE,SIZE,LABEL -J
+  ansible.builtin.command: lsblk -o NAME,FSTYPE,TYPE,SIZE,LABEL -J
   register: lsblk_output
-  changed_when: False
+  changed_when: false
 
 - name: Get result from lsblk
   ansible.builtin.set_fact:
@@ -24,7 +24,7 @@
 - name: List all zpools
   ansible.builtin.command: "zpool list -H -o name"
   register: zpool_list
-  changed_when: False
+  changed_when: false
 
 - name: Set fact if l2arc exists
   ansible.builtin.set_fact:
