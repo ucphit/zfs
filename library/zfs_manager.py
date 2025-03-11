@@ -144,10 +144,10 @@ def run_module():
         type=dict(type='str', choices=['zpool', 'volume'], default='zpool'),
         size=dict(type='str', required=False),
         raidz=dict(type='str', default='stripe'),
-        disks=dict(type='list', default=[]),
-        compression=dict(type='str', default='off'),
-        canmount=dict(type='str', default='off'),
-        state=dict(type='str', default='present')')
+        disks=dict(type='list', elements='str', default=[]),
+        compression=dict(type='bool', default=False),
+        canmount=dict(type='bool', default=False),
+        state=dict(type='str', choices=['present', 'absent'], default='present'),
     )
 
     result = dict(changed=False)
