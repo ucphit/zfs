@@ -174,11 +174,26 @@ def cache_device_exists(zpool: str, device: str) -> bool:
     except subprocess.CalledProcessError:
         return False
 
-
 def add_cache_to_zpool(zpool: str, device: str, module: AnsibleModule) -> None:
     command = ['zpool', 'add', zpool, 'cache', device]
     run_command(command, module, f"Failed to add cache device '{device}' to zpool '{zpool}'")
 
+def hotspare_exists(zpool: str, device: str) -> bool:
+    try:
+        result = subprocess.run(
+            ['zpool', 'status', zpool],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True
+        )
+        return 'spares' in result.stdout and device in result.stdout
+    except subprocess.CalledProcessError:
+        return False
+
+def add_hotspare(zpool: str, device: str, module: AnsibleModule) -> None:
+    command = ['zpool', 'add', zpool, 'spare', device]
+    run_command(command, module, f"Failed to add hot spare '{device}' to zpool '{zpool}'")
 
 def run_module():
     module_args = dict(
@@ -188,6 +203,7 @@ def run_module():
         zpool=dict(type='str', required=False),
         raidz=dict(type='str', default='stripe'),
         disks=dict(type='list', elements='str', default=[]),
+        hot_spare=dict(type='list', elements='str', required=False, default=[]),
         compression=dict(type='bool', default=False),
         canmount=dict(type='bool', default=False),
         state=dict(type='str', choices=['present', 'absent'], default='present'),
@@ -203,9 +219,7 @@ def run_module():
     canmount = 'canmount=on' if module.params['canmount'] else 'canmount=off'
     options = [compression, canmount]
 
-    # Validate required params for volumes
-    if obj_type == 'volume' and not module.params['size']:
-        module.fail_json(msg="'size' is required when type is 'volume'")
+    changed = False
 
     # Handle zpool creation/deletion
     if obj_type == 'zpool':
@@ -213,17 +227,21 @@ def run_module():
         pool_exists = check_zpool_exists(name)
 
         if state == 'present':
-            if pool_exists:
-                if module.check_mode:
-                    module.exit_json(changed=False, msg=f"Zpool '{name}' already exists (check mode).")
-                set_zpool_options(name, options, module)
-                module.exit_json(changed=False, msg=f"Zpool '{name}' exists. Options updated if necessary.")
-            else:
-                if module.check_mode:
-                    module.exit_json(changed=True, msg=f"Would create zpool '{name}' (check mode).")
+            if not pool_exists and module.params['hot_spare'] and not module.params['disks']:
+                module.fail_json(msg=f"Cannot create zpool '{name}' with hot spares but without disks.")
+
+            if not pool_exists:
                 create_zpool(name, module.params['raidz'], module.params['disks'], module)
-                set_zpool_options(name, options, module)
-                result['changed'] = True
+                changed = True
+
+            option_changed = set_zpool_options(name, options, module)
+            if option_changed:
+                changed = True
+
+            for spare in module.params['hot_spare']:
+                if not hotspare_exists(name, spare):
+                    add_hotspare(name, spare, module)
+                    changed = True
                 module.exit_json(**result)
 
         elif state == 'absent':
@@ -236,6 +254,9 @@ def run_module():
 
     # Handle volume creation/deletion
     elif obj_type == 'volume':
+        if not module.params['size']:
+            module.fail_json(msg="'size' is required when type is 'volume'")
+        
         volume_exists = check_volume_exists(name)
 
         if state == 'present':
@@ -269,8 +290,6 @@ def run_module():
         zpool = module.params['zpool']
 
         volume_exists = check_volume_exists(zvol_name)
-
-        changed = False
 
         if not volume_exists:
             if module.check_mode:
