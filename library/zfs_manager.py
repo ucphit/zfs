@@ -161,11 +161,31 @@ def validate_raid_disks(raid_type: str, disks: List[str], module: AnsibleModule)
                 f"Provided disks: {len(disks)} ({disks})"
         )
 
+def cache_device_exists(zpool: str, device: str) -> bool:
+    try:
+        result = subprocess.run(
+            ['zpool', 'status', zpool],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True
+        )
+        return f"cache" in result.stdout and device in result.stdout
+    except subprocess.CalledProcessError:
+        return False
+
+
+def add_cache_to_zpool(zpool: str, device: str, module: AnsibleModule) -> None:
+    command = ['zpool', 'add', zpool, 'cache', device]
+    run_command(command, module, f"Failed to add cache device '{device}' to zpool '{zpool}'")
+
+
 def run_module():
     module_args = dict(
         name=dict(type='str', required=True),
-        type=dict(type='str', choices=['zpool', 'volume'], default='zpool'),
+        type=dict(type='str', choices=['zpool', 'volume', 'cache'], default='zpool'),
         size=dict(type='str', required=False),
+        zpool=dict(type='str', required=False),
         raidz=dict(type='str', default='stripe'),
         disks=dict(type='list', elements='str', default=[]),
         compression=dict(type='bool', default=False),
@@ -239,6 +259,32 @@ def run_module():
                 destroy_volume(name, module)
                 result['changed'] = True
             module.exit_json(**result)
+
+    if obj_type == 'cache':
+        if not module.params['size'] or not module.params['zpool']:
+            module.fail_json(msg="'size' and 'zpool' are required when type is 'cache'")
+
+        zvol_name = module.params['name']
+        size = module.params['size']
+        zpool = module.params['zpool']
+
+        volume_exists = check_volume_exists(zvol_name)
+
+        changed = False
+
+        if not volume_exists:
+            if module.check_mode:
+                module.exit_json(changed=True, msg=f"Would create cache volume '{zvol_name}' (check mode).")
+            create_volume(zvol_name, size, module)
+            changed = True
+
+        if not cache_device_exists(zpool, f"/dev/zvol/{zvol_name}"):
+            if module.check_mode:
+                module.exit_json(changed=True, msg=f"Would add cache device '/dev/zvol/{zvol_name}' to zpool '{zpool}' (check mode).")
+            add_cache_to_zpool(zpool, f"/dev/zvol/{zvol_name}", module)
+            changed = True
+
+        module.exit_json(changed=changed, msg=f"Cache device '{zvol_name}' ensured in zpool '{zpool}'")
 
 
 def main():
