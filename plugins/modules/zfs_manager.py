@@ -210,7 +210,7 @@ def run_module():
     )
 
     result = dict(changed=False)
-    module = AnsibleModule(argument_spec=module_args,supports_check_mode=True)
+    module = AnsibleModule(argument_spec=module_args,supports_check_mode=False)
 
     name = module.params['name']
     obj_type = module.params['type']
@@ -242,7 +242,9 @@ def run_module():
                 if not hotspare_exists(name, spare):
                     add_hotspare(name, spare, module)
                     changed = True
-                module.exit_json(**result)
+
+            result['changed'] = changed
+            module.exit_json(**result)
 
         elif state == 'absent':
             if pool_exists:
