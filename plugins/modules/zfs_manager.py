@@ -223,7 +223,6 @@ def run_module():
 
     # Handle zpool creation/deletion
     if obj_type == 'zpool':
-        validate_raid_disks(module.params['raidz'], module.params['disks'], module)
         pool_exists = check_zpool_exists(name)
 
         if state == 'present':
@@ -231,6 +230,7 @@ def run_module():
                 module.fail_json(msg=f"Cannot create zpool '{name}' with hot spares but without disks.")
 
             if not pool_exists:
+                validate_raid_disks(module.params['raidz'], module.params['disks'], module)
                 create_zpool(name, module.params['raidz'], module.params['disks'], module)
                 changed = True
 
